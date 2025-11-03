@@ -4,6 +4,7 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Components/InputComponent.h"
 #include "UObject/ConstructorHelpers.h"
+#include "Engine/Engine.h" 
 
 AGlowingOrb::AGlowingOrb()
 {
@@ -12,10 +13,9 @@ AGlowingOrb::AGlowingOrb()
 	OrbMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("OrbMesh"));
 	RootComponent = OrbMesh; 
 
-	// 2. Set up collision to match our requirements
 	OrbMesh->SetCollisionProfileName(TEXT("BlockAllDynamic"));
-	OrbMesh->SetSimulatePhysics(false);
-	OrbMesh->SetNotifyRigidBodyCollision(true);
+	OrbMesh->SetSimulatePhysics(false); 
+	OrbMesh->SetNotifyRigidBodyCollision(true); 
 
 	ProjectileMovement = CreateDefaultSubobject<UProjectileMovementComponent>(TEXT("ProjectileMovement"));
 
@@ -51,8 +51,8 @@ void AGlowingOrb::BeginPlay()
 	{
 		InputComponent->BindAction("Interact", IE_Pressed, this, &AGlowingOrb::OnInteractPressed).bConsumeInput = true;
 		InputComponent->BindAction("Interact", IE_Released, this, &AGlowingOrb::OnInteractReleased);
-		InputComponent->BindAction("ToggleGravity", IE_Pressed, this, &AGlowingOrb::OnToggleGravity);
-		InputComponent->BindAction("ResetPosition", IE_Pressed, this, &AGlowingOrb::OnResetPosition);
+		InputComponent->BindAction("ToggleGravity", IE_Pressed, this, &AGlowingOrb::OnToggleGravity).bConsumeInput = true;
+		InputComponent->BindAction("ResetPosition", IE_Pressed, this, &AGlowingOrb::OnResetPosition).bConsumeInput = true;
 	}
 
 	if (OrbMesh->GetMaterial(0))
@@ -69,11 +69,13 @@ void AGlowingOrb::BeginPlay()
 	OrbMesh->OnComponentHit.AddDynamic(this, &AGlowingOrb::OnOrbHit);
 }
 
-void AGlowingOrb::InitializeState(FVector Position, FVector Velocity, float Energy)
+void AGlowingOrb::InitializeState(FVector Position, FVector Velocity, float Energy, bool bInitialGravityState)
 {
 	SetActorLocation(Position);
 	ProjectileMovement->SetVelocityInLocalSpace(Velocity);
 	CurrentEnergy = Energy;
+
+	bGravityEnabled = bInitialGravityState;
 
 	if (DynamicMaterial)
 	{
@@ -81,42 +83,39 @@ void AGlowingOrb::InitializeState(FVector Position, FVector Velocity, float Ener
 	}
 }
 
-void AGlowingOrb::OnInteractPressed()
-{
-	bIsPlayerInteracting = true;
-}
+void AGlowingOrb::OnInteractPressed() { bIsPlayerInteracting = true; }
+void AGlowingOrb::OnInteractReleased() { bIsPlayerInteracting = false; }
 
-void AGlowingOrb::OnInteractReleased()
-{
-	bIsPlayerInteracting = false;
-}
 
 void AGlowingOrb::OnToggleGravity()
 {
+	/*if (GEngine)
+		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("TOGGLE GRAVITY PRESSED!"));*/
+
 	bGravityEnabled = !bGravityEnabled;
-	ProjectileMovement->ProjectileGravityScale = bGravityEnabled ? 1.0f : 0.0f;
+
+	if (!bGravityEnabled)
+	{
+		ProjectileMovement->SetVelocityInLocalSpace(FVector::ZeroVector);
+	}
 }
+
 
 void AGlowingOrb::OnResetPosition()
 {
 	SetActorLocation(InitialPosition);
 	ProjectileMovement->SetVelocityInLocalSpace(FVector::ZeroVector);
-	CurrentEnergy = 0.5f; // Set to a default 50% energy
+	CurrentEnergy = 0.5f;
 
-	bGravityEnabled = false;
-	ProjectileMovement->ProjectileGravityScale = 0.0f;
 }
 
 void AGlowingOrb::OnOrbHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
 {
 	float ImpactVelocity = FMath::Abs(GetVelocity().Z);
-
-	const float RestThreshold = 10.0f; // 0.1 m/s = 10 cm/s
-
+	const float RestThreshold = 10.0f;
 	if (ImpactVelocity > RestThreshold)
 	{
 		float EnergyGain = ImpactVelocity * 0.001f;
-
 		CurrentEnergy = FMath::Clamp(CurrentEnergy + EnergyGain, 0.0f, 1.0f);
 	}
 }
@@ -128,17 +127,29 @@ void AGlowingOrb::Tick(float DeltaTime)
 
 	if (bIsPlayerInteracting)
 	{
-		//energy++
 		CurrentEnergy = FMath::Clamp(CurrentEnergy + (1.0f * DeltaTime), 0.0f, 1.0f);
 	}
 	else
 	{
-		//energy--
 		CurrentEnergy = FMath::Clamp(CurrentEnergy - (0.1f * DeltaTime), 0.0f, 1.0f);
 	}
 
 	if (DynamicMaterial)
 	{
 		DynamicMaterial->SetScalarParameterValue(TEXT("Energy"), CurrentEnergy);
+	}
+
+	if (bGravityEnabled)
+	{
+		FVector vel = ProjectileMovement->Velocity;
+		vel.Z += -980.f * DeltaTime; 
+		ProjectileMovement->Velocity = vel;
+	}
+	else
+	{
+		FVector vel = ProjectileMovement->Velocity;
+		if (FMath::Abs(vel.Z) < 1.f)
+			vel.Z = 0.f;
+		ProjectileMovement->Velocity = vel;
 	}
 }

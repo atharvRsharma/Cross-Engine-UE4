@@ -19,7 +19,7 @@ public:
 
 	virtual void Tick(float DeltaTime) override;
 
-	void InitializeState(FVector Position, FVector Velocity, float Energy);
+	void InitializeState(FVector Position, FVector Velocity, float Energy, bool bInitialGravityState);
 
 protected:
 	virtual void BeginPlay() override;
